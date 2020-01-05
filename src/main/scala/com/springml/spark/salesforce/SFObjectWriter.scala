@@ -28,7 +28,7 @@ class SFObjectWriter (
 
   @transient val logger = Logger.getLogger(classOf[SFObjectWriter])
 
-  def writeData(rdd: RDD[Row]): Boolean = {
+  def writeData(rdd: RDD[Row], backoffPollingTime: Long, maxWriteRetries: Int): Boolean = {
     val csvRDD = rdd.map(row => row.toSeq.map(value => Utils.rowValue(value)).mkString(","))
 
     val jobInfo = new JobInfo(WaveAPIConstants.STR_CSV, sfObject, operation(mode, upsert))
@@ -53,20 +53,20 @@ class SFObjectWriter (
     }.reduce((a, b) => a & b)
 
     bulkAPI.closeJob(jobId)
-    var i = 1
-    while (i < 999999) {
+    var init = 1
+    while (init < maxWriteRetries) {
       if (bulkAPI.isCompleted(jobId)) {
-        logger.info("Job completed")
+        logger.info(s"Job completed, id: $jobId")
         return true
       }
 
-      logger.info("Job not completed, waiting...")
-      Thread.sleep(200)
-      i = i + 1
+      val waitTime = backoffPollingTime * init
+      logger.info(s"Job not completed, id: $jobId, waiting: $waitTime ms")
+      Thread.sleep(waitTime)
+      init += 1
     }
 
-    print("Returning false...")
-    logger.info("Job not completed. Timeout..." )
+    logger.info(s"Job not completed, id: $jobId. Timeout..." )
     false
   }
 

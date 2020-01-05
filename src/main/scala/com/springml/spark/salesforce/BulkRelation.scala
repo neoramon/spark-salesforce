@@ -70,7 +70,7 @@ case class BulkRelation(
         val result = bulkAPI.getBatchResult(jobId, batchInfoId, resultIds.get(resultIds.size() - 1))
 
         // Use Csv parser to split CSV by rows to cover edge cases (ex. escaped characters, new line within string, etc)
-        def splitCsvByRows(csvString: String): Seq[String] = {
+        def splitCsvByRows(csvString: String): Iterator[String] = {
           // The CsvParser interface only interacts with IO, so StringReader and StringWriter
           val inputReader = new StringReader(csvString)
 
@@ -90,7 +90,7 @@ case class BulkRelation(
           val writer = new CsvWriter(outputWriter, writerSettings)
           parsedInput.foreach { writer.writeRow(_) }
 
-          outputWriter.toString.lines.toList
+          outputWriter.toString.lines
         }
 
         splitCsvByRows(result)

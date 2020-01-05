@@ -24,7 +24,7 @@ object InferSchema {
    *     3. Replace any null types with string type
    */
   def apply(sampleRdd: RDD[Array[String]], header: Array[String],
-            sdf: SimpleDateFormat): StructType = {
+            sdf: Option[SimpleDateFormat]): StructType = {
     logger.debug("Sample RDD Size : " + sampleRdd.count)
     logger.debug("Header : " + header)
     val startType: Array[DataType] = Array.fill[DataType](header.length)(NullType)
@@ -38,7 +38,7 @@ object InferSchema {
     StructType(structFields)
   }
 
-  private def inferRowType(sdf:SimpleDateFormat)
+  private def inferRowType(sdf: Option[SimpleDateFormat])
                           (rowSoFar: Array[DataType], next: Array[String]): Array[DataType] = {
     logger.debug("Rows so far : " + rowSoFar)
     logger.debug("Next row to be infered : " + next)
@@ -66,7 +66,7 @@ object InferSchema {
    * Infer type of string field. Given known type Double, and a string "1", there is no
    * point checking if it is an Int, as the final type must be Double or higher.
    */
-  private def inferField(typeSoFar: DataType, field: String, sdf: SimpleDateFormat): DataType = {
+  private def inferField(typeSoFar: DataType, field: String, sdf: Option[SimpleDateFormat]): DataType = {
     if (field == null || field.isEmpty) {
       typeSoFar
     } else {
@@ -84,7 +84,7 @@ object InferSchema {
   }
 
 
-  private def tryParseInteger(field: String, sdf: SimpleDateFormat): DataType = {
+  private def tryParseInteger(field: String, sdf: Option[SimpleDateFormat]): DataType = {
     if ((allCatch opt field.toInt).isDefined) {
       IntegerType
     } else {
@@ -92,7 +92,7 @@ object InferSchema {
     }
   }
 
-  private def tryParseLong(field: String, sdf: SimpleDateFormat): DataType = {
+  private def tryParseLong(field: String, sdf: Option[SimpleDateFormat]): DataType = {
     if ((allCatch opt field.toLong).isDefined) {
       LongType
     } else {
@@ -100,7 +100,7 @@ object InferSchema {
     }
   }
 
-  private def tryParseDouble(field: String, sdf: SimpleDateFormat): DataType = {
+  private def tryParseDouble(field: String, sdf: Option[SimpleDateFormat]): DataType = {
     if ((allCatch opt field.toDouble).isDefined) {
       DoubleType
     } else {
@@ -109,20 +109,20 @@ object InferSchema {
   }
 
 
-  def tryParseTimestamp(field: String, sdf: SimpleDateFormat): DataType = {
-    if (sdf != null) {
+  def tryParseTimestamp(field: String, sdf: Option[SimpleDateFormat]): DataType = {
+    sdf.map( sdf => {
       if ((allCatch opt sdf.parse(field)).isDefined){
         TimestampType
       } else {
         tryParseBoolean(field)
       }
-    } else {
+    }).getOrElse(
       if ((allCatch opt Timestamp.valueOf(field)).isDefined) {
         TimestampType
       } else {
         tryParseBoolean(field)
       }
-    }
+    )
   }
 
   def tryParseBoolean(field: String): DataType = {

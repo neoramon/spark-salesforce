@@ -21,7 +21,7 @@ import org.scalatest.{BeforeAndAfterEach, FunSuite}
 
 import scala.concurrent.duration.{FiniteDuration, MILLISECONDS}
 
-class TestUtils extends FunSuite with BeforeAndAfterEach {
+class UtilsTest extends FunSuite with BeforeAndAfterEach {
   var ss: SparkSession = _
 
   override def beforeEach() {
@@ -114,7 +114,7 @@ class TestUtils extends FunSuite with BeforeAndAfterEach {
     val schema = StructType(columnStruct)
 
     val expected = "c1,c2,c3,c4,c5"
-    val actual = Utils.csvHeadder(schema)
+    val actual = Utils.csvHeader(schema)
     assert(expected.equals(actual))
   }
 

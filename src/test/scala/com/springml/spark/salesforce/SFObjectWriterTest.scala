@@ -11,7 +11,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{ Row, DataFrame, SQLContext}
 import org.apache.spark.sql.types.{ StructType, StringType, StructField}
 
-class TestSFObjectWriter extends FunSuite with MockitoSugar with BeforeAndAfterEach {
+class SFObjectWriterTest extends FunSuite with MockitoSugar with BeforeAndAfterEach {
   val contact = "Contact";
   val jobId = "750B0000000WlhtIAC";
   val batchId = "751B0000000scSHIAY";
@@ -64,8 +64,10 @@ class TestSFObjectWriter extends FunSuite with MockitoSugar with BeforeAndAfterE
 
   test ("Write Object to Salesforce") {
     val df = sampleDF();
-    val csvHeader = Utils.csvHeadder(df.schema)
-    writer.writeData(df.rdd)
+    val csvHeader = Utils.csvHeader(df.schema)
+    val backoffPollingTime = 1000
+    val maxRetries = 2
+    writer.writeData(df.rdd, backoffPollingTime, maxRetries)
     sc.stop()
   }
 }

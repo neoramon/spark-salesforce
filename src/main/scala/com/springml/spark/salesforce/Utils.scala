@@ -20,7 +20,6 @@ import scala.io.Source
 import scala.util.parsing.json._
 import com.sforce.soap.partner.{Connector, PartnerConnection, SaveResult}
 import com.sforce.ws.ConnectorConfig
-import com.madhukaraphatak.sizeof.SizeEstimator
 import org.apache.log4j.Logger
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
@@ -29,8 +28,10 @@ import org.apache.spark.sql.types.{DoubleType, IntegerType, StructType}
 import scala.collection.immutable.HashMap
 import com.springml.spark.salesforce.metadata.MetadataConstructor
 import com.sforce.soap.partner.sobject.SObject
+
 import scala.concurrent.duration._
 import com.sforce.soap.partner.fault.UnexpectedErrorFault
+import org.apache.spark.util.SizeEstimator
 
 import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
@@ -41,8 +42,10 @@ import scala.util.Try
 object Utils extends Serializable {
   @transient val logger = Logger.getLogger("Utils")
 
+  val sfVersion = "47.0"
+
   def createConnection(username: String, password: String,
-      login: String, version: String):PartnerConnection = {
+      login: String, version: String = sfVersion): PartnerConnection = {
     val config = new ConnectorConfig()
     config.setUsername(username)
     config.setPassword(password)
@@ -64,21 +67,21 @@ object Utils extends Serializable {
 
   def repartition(rdd: RDD[Row]): RDD[Row] = {
     val totalDataSize = getTotalSize(rdd)
-    val maxBundleSize = 1024 * 1024 * 10l
+    val maxBundleSize = 1024 * 1024 * 10L
     var partitions = 1
     if (totalDataSize > maxBundleSize) {
       partitions = Math.round(totalDataSize / maxBundleSize) + 1
     }
 
     val shuffle = rdd.partitions.length < partitions
-    rdd.coalesce(partitions.toInt, shuffle)
+    rdd.coalesce(partitions, shuffle)
   }
 
   def getTotalSize(rdd: RDD[Row]): Long = {
     // This can be fetched as optional parameter
     val NO_OF_SAMPLE_ROWS = 10
     val totalRows = rdd.count()
-    var totalSize = 0l
+    var totalSize = 0L
 
     if (totalRows > NO_OF_SAMPLE_ROWS) {
       val sampleObj = rdd.takeSample(false, NO_OF_SAMPLE_ROWS)
@@ -97,7 +100,7 @@ object Utils extends Serializable {
   }
 
   def rowSize(rows: Array[Row]) : Long = {
-      var sizeOfRows = 0l
+      var sizeOfRows = 0L
       for (row <- rows) {
         // Converting to bytes
         val rowSize = SizeEstimator.estimate(row.toSeq.map { value => rowValue(value) }.mkString(","))
@@ -122,7 +125,7 @@ object Utils extends Serializable {
     }
   }
 
-  def metadataConfig(usersMetadataConfig: Option[String]) = {
+  def metadataConfig(usersMetadataConfig: Option[String]): Map[String, Map[String, String]] = {
     var systemMetadataConfig = readMetadataConfig()
     if (usersMetadataConfig != null && usersMetadataConfig.isDefined) {
       val usersMetadataConfigMap = readJSON(usersMetadataConfig.get)
@@ -132,8 +135,8 @@ object Utils extends Serializable {
     systemMetadataConfig
   }
 
-  def csvHeadder(schema: StructType) : String = {
-    schema.fields.map(field => field.name).mkString(",")
+  def csvHeader(schema: StructType) : String = {
+    schema.fields.map(field => field.name.trim).mkString(",")
   }
 
   def metadata(
@@ -158,14 +161,14 @@ object Utils extends Serializable {
       String, login: String, version: String) : Boolean = {
     var partnerConnection = Utils.createConnection(username, password, login, version)
     try {
-      monitorJob(partnerConnection, objId, 500)
+      monitorJob(partnerConnection, objId)
     } catch {
       case uefault: UnexpectedErrorFault => {
         val exMsg = uefault.getExceptionMessage
-        logger.info("Error Message from Salesforce Wave " + exMsg)
+        logger.error("Error Message from Salesforce Wave " + exMsg)
         if (exMsg contains "Invalid Session") {
           logger.info("Session expired. Monitoring Job using new connection")
-          return monitorJob(objId, username, password, login, version)
+          monitorJob(objId, username, password, login, version)
         } else {
           throw uefault
         }
@@ -208,7 +211,7 @@ object Utils extends Serializable {
   }
 
   private def monitorJob(connection: PartnerConnection,
-      objId: String, waitDuration: Long) : Boolean = {
+      objId: String, waitDuration: Long = 500) : Boolean = {
     val sobjects = connection.retrieve("Status", "InsightsExternalData", Array(objId))
     if (sobjects != null && sobjects.length > 0) {
       val status = sobjects(0).getField("Status")

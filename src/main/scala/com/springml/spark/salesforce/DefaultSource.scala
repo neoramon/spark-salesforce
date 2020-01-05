@@ -21,7 +21,7 @@ import com.springml.salesforce.wave.api.APIFactory
 import org.apache.http.Header
 import org.apache.http.message.BasicHeader
 import org.apache.log4j.Logger
-import org.apache.spark.sql.sources.{BaseRelation, CreatableRelationProvider, RelationProvider, SchemaRelationProvider}
+import org.apache.spark.sql.sources.{BaseRelation, CreatableRelationProvider, RelationProvider, SchemaRelationProvider, TableScan}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
 
@@ -46,18 +46,18 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
   /**
    * Execute the SAQL against Salesforce Wave and construct dataframe with the result
    */
-  override def createRelation(sqlContext: SQLContext, parameters: Map[String, String]) = {
+  override def createRelation(sqlContext: SQLContext, parameters: Map[String, String]): BaseRelation with TableScan = {
     createRelation(sqlContext, parameters, null)
   }
 
   /**
    *
    */
-  override def createRelation(sqlContext: SQLContext, parameters: Map[String, String], schema: StructType) = {
+  override def createRelation(sqlContext: SQLContext, parameters: Map[String, String], schema: StructType): BaseRelation with TableScan = {
     val username = param(parameters, "SF_USERNAME", "username")
     val password = param(parameters, "SF_PASSWORD", "password")
     val login = parameters.getOrElse("login", "https://login.salesforce.com")
-    val version = parameters.getOrElse("version", "36.0")
+    val version = parameters.getOrElse("version", "47.0")
     val saql = parameters.get("saql")
     val soql = parameters.get("soql")
     val resultVariable = parameters.get("resultVariable")
@@ -65,7 +65,7 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
     val sampleSize = parameters.getOrElse("sampleSize", "1000")
     val maxRetry = parameters.getOrElse("maxRetry", "5")
     val inferSchema = parameters.getOrElse("inferSchema", "false")
-    val dateFormat = parameters.getOrElse("dateFormat", null)
+    val dateFormat = parameters.get("dateFormat")
     // This is only needed for Spark version 1.5.2 or lower
     // Special characters in older version of spark is not handled properly
     val encodeFields = parameters.get("encodeFields")
@@ -82,7 +82,7 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
 
     if (saql.isDefined) {
       val waveAPI = APIFactory.getInstance.waveAPI(username, password, login, version)
-      DatasetRelation(waveAPI, null, saql.get, schema, sqlContext,
+      DatasetRelation(Some(waveAPI), None, saql.get, schema, sqlContext,
           resultVariable, pageSize.toInt, sampleSize.toInt,
           encodeFields, inferSchemaFlag, replaceDatasetNameWithId.toBoolean, sdf(dateFormat),
           queryAllFlag)
@@ -100,7 +100,7 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
       } else {
         val forceAPI = APIFactory.getInstance.forceAPI(username, password, login,
           version, Integer.getInteger(pageSize), Integer.getInteger(maxRetry))
-        DatasetRelation(null, forceAPI, soql.get, schema, sqlContext,
+        DatasetRelation(None, Some(forceAPI), soql.get, schema, sqlContext,
           null, 0, sampleSize.toInt, encodeFields, inferSchemaFlag,
           replaceDatasetNameWithId.toBoolean, sdf(dateFormat), queryAllFlag)
       }
@@ -114,15 +114,17 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
     val password = param(parameters, "SF_PASSWORD", "password")
     val datasetName = parameters.get("datasetName")
     val sfObject = parameters.get("sfObject")
-    val appName = parameters.getOrElse("appName", null)
+    val appName = parameters.get("appName")
     val login = parameters.getOrElse("login", "https://login.salesforce.com")
-    val version = parameters.getOrElse("version", "36.0")
+    val version = parameters.getOrElse("version", Utils.sfVersion)
     val usersMetadataConfig = parameters.get("metadataConfig")
     val upsert = parameters.getOrElse("upsert", "false")
     val metadataFile = parameters.get("metadataFile")
-    val encodeFields = parameters.get("encodeFields")
     val monitorJob = parameters.getOrElse("monitorJob", "false")
     val externalIdFieldName = parameters.getOrElse("externalIdFieldName", "Id")
+
+    val backoffPollingTime = parameters.getOrElse("backoffPollingTime", "500").toLong
+    val maxWriteRetries = parameters.getOrElse("maxWriteRetries", "1200").toInt
 
     validateMutualExclusive(datasetName, sfObject, "datasetName", "sfObject")
 
@@ -141,10 +143,10 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
     } else {
       logger.info("Updating Salesforce Object")
       updateSalesforceObject(username, password, login, version, sfObject.get, mode,
-          flag(upsert, "upsert"), externalIdFieldName, data)
+          flag(upsert, "upsert"), externalIdFieldName, data, backoffPollingTime, maxWriteRetries)
     }
 
-    return createReturnRelation(data)
+    createReturnRelation(data)
   }
 
   private def updateSalesforceObject(
@@ -156,9 +158,11 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
       mode: SaveMode,
       upsert: Boolean,
       externalIdFieldName: String,
-      data: DataFrame) {
+      data: DataFrame,
+      backoffPollingTime: Long,
+      maxWriteRetries: Int) {
 
-    val csvHeader = Utils.csvHeadder(data.schema)
+    val csvHeader = Utils.csvHeader(data.schema)
     logger.info("no of partitions before repartitioning is " + data.rdd.partitions.length)
     logger.info("Repartitioning rdd for 10mb partitions")
     val repartitionedRDD = Utils.repartition(data.rdd)
@@ -166,7 +170,7 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
 
     val writer = new SFObjectWriter(username, password, login, version, sfObject, mode, upsert, externalIdFieldName, csvHeader)
     logger.info("Writing data")
-    val successfulWrite = writer.writeData(repartitionedRDD)
+    val successfulWrite = writer.writeData(repartitionedRDD, backoffPollingTime, maxWriteRetries)
     logger.info(s"Writing data was successful was $successfulWrite")
     if (!successfulWrite) {
       sys.error("Unable to update salesforce object")
@@ -194,7 +198,7 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
     val timeout = try {
       timeoutStr.toLong
     } catch {
-      case e: Exception => throw new Exception("timeout must be a valid integer")
+      case e: Exception => throw new Exception("timeout must be a valid integer", e)
     }
 
     var customHeaders = ListBuffer[Header]()
@@ -209,7 +213,7 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
           chunkSize.get.toInt
         }
         catch {
-          case e: Exception => throw new Exception("chunkSize must be a valid integer")
+          case e: Exception => throw new Exception("chunkSize must be a valid integer", e)
         }
         customHeaders += new BasicHeader("Sforce-Enable-PKChunking", s"chunkSize=${chunkSize.get}")
       } else {
@@ -238,7 +242,7 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
       login: String,
       version: String,
       datasetName: String,
-      appName: String,
+      appName: Option[String],
       usersMetadataConfig: Option[String],
       mode: SaveMode,
       upsert: Boolean,
@@ -313,13 +317,8 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
         sys.error(s"""Either '$envName' has to be added in environment or '$paramName' must be specified for salesforce package."""))
   }
 
-  private def sdf(dateFormat: String) : SimpleDateFormat = {
-    var simpleDateFormat : SimpleDateFormat = null
-    if (dateFormat != null && !dateFormat.isEmpty) {
-      simpleDateFormat = new SimpleDateFormat(dateFormat)
-    }
-
-    simpleDateFormat
+  private def sdf(dateFormat: Option[String]) : Option[SimpleDateFormat] = {
+    dateFormat.map(new SimpleDateFormat(_))
   }
 
   private def flag(paramValue: String, paramName: String) : Boolean = {

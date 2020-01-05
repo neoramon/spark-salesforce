@@ -48,12 +48,16 @@ $ bin/spark-shell --packages com.springml:spark-salesforce_2.11:1.1.3
 * `metadataConfig`: (Optional) Metadata configuration which will be used to construct [Salesforce Wave Dataset Metadata] (https://resources.docs.salesforce.com/sfdc/pdf/bi_dev_guide_ext_data_format.pdf). Metadata configuration has to be provided in JSON format
 * `saql`: (Optional) SAQL query to used to query Salesforce Wave. Mandatory for reading Salesforce Wave dataset
 * `soql`: (Optional) SOQL query to used to query Salesforce Object. Mandatory for reading Salesforce Object like Opportunity
-* `version`: (Optional) Salesforce API Version. Default 35.0
+* `version`: (Optional) Salesforce API Version. Default 47.0
 * `inferSchema`: (Optional) Inferschema from the query results. Sample rows will be taken to find the datatype
 * `dateFormat`: (Optional) A string that indicates the format that follow java.text.SimpleDateFormat to use when reading timestamps. This applies to TimestampType. By default, it is null which means trying to parse timestamp by java.sql.Timestamp.valueOf()
 * `resultVariable`: (Optional) result variable used in SAQL query. To paginate SAQL queries this package will add the required offset and limit. For example, in this SAQL query `q = load \"<dataset_id>/<dataset_version_id>\"; q = foreach q generate  'Name' as 'Name',  'Email' as 'Email';` **q** is the result variable
 * `pageSize`: (Optional) Page size for each query to be executed against Salesforce Wave. Default value is 2000. This option can only be used if `resultVariable` is set
 * `upsert`: (Optional) Flag to upsert data to Salesforce. This performs an insert or update operation using the "externalIdFieldName" as the primary ID. Existing fields that are not in the dataframe being pushed will not be updated. Default "false".
+* `backoffPollingTime`: (Optional)  Starting retry wait time, for each retry the waiting time is multiplied by the retry count, default is 500.
+* `maxWriteRetries`: (Optional) Max number of retries, default is 1200, with default backoffPollingTime takes maximum 10 min to timeout.
+
+Check (https://developer.salesforce.com/docs/atlas.en-us.api_asynch.meta/api_asynch/asynch_api_concepts_limits.htm) to understand time limits and choose the right time configs. 
 
 ### Options only supported for fetching Salesforce Objects.
 * `bulk`: (Optional) Flag to enable bulk query. This is the preferred method when loading large sets of data. Salesforce will process batches in the background. Default value is `false`.

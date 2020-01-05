@@ -21,8 +21,8 @@ import scala.collection.JavaConversions.{asScalaBuffer, mapAsScalaMap}
  * Relation class for reading data from Salesforce and construct RDD
  */
 case class DatasetRelation(
-    waveAPI: WaveAPI,
-    forceAPI: ForceAPI,
+    waveAPI: Option[WaveAPI],
+    forceAPI: Option[ForceAPI],
     query: String,
     userSchema: StructType,
     sqlContext: SQLContext,
@@ -32,23 +32,17 @@ case class DatasetRelation(
     encodeFields: Option[String],
     inferSchema: Boolean,
     replaceDatasetNameWithId: Boolean,
-    sdf: SimpleDateFormat,
+    sdf: Option[SimpleDateFormat],
     queryAll: Boolean) extends BaseRelation with TableScan {
 
   private val logger = Logger.getLogger(classOf[DatasetRelation])
 
-  val records = read()
-
-  def read(): java.util.List[java.util.Map[String, String]] = {
-    var records: java.util.List[java.util.Map[String, String]]= null
-    // Query getting executed here
-    if (waveAPI != null) {
-      records = queryWave()
-    } else if (forceAPI != null) {
-      records = querySF()
-    }
-
-    records
+  // TODO: Refactor.
+  val records: java.util.List[java.util.Map[String, String]] = {
+    waveAPI.map(api => queryWave())
+      .getOrElse(
+        forceAPI.map(api => querySF()).get
+      )
   }
 
   private def queryWave(): java.util.List[java.util.Map[String, String]] = {
@@ -62,14 +56,14 @@ case class DatasetRelation(
     }
 
     if (resultVariable == null || !resultVariable.isDefined) {
-      val resultSet = waveAPI.query(saql)
+      val resultSet = waveAPI.get.query(saql)
       records = resultSet.getResults.getRecords
     } else {
-      var resultSet = waveAPI.queryWithPagination(saql, resultVariable.get, pageSize)
+      var resultSet = waveAPI.get.queryWithPagination(saql, resultVariable.get, pageSize)
       records = resultSet.getResults.getRecords
 
       while (!resultSet.isDone()) {
-        resultSet = waveAPI.queryMore(resultSet)
+        resultSet = waveAPI.get.queryMore(resultSet)
         records.addAll(resultSet.getResults.getRecords)
       }
     }
@@ -89,7 +83,7 @@ case class DatasetRelation(
       val endDatasetIndex = query.indexOf('\"', startDatasetIndex + 1)
       val datasetName = query.substring(startDatasetIndex + 1, endDatasetIndex)
 
-      val datasetId = waveAPI.getDatasetId(datasetName)
+      val datasetId = waveAPI.get.getDatasetId(datasetName)
       if (datasetId != null) {
         modQuery = query.replaceAll(datasetName, datasetId)
       }
@@ -103,11 +97,11 @@ case class DatasetRelation(
   private def querySF(): java.util.List[java.util.Map[String, String]] = {
       var records: java.util.List[java.util.Map[String, String]]= null
 
-      var resultSet = forceAPI.query(query, queryAll)
+      var resultSet = forceAPI.get.query(query, queryAll)
       records = resultSet.filterRecords()
 
       while (!resultSet.isDone()) {
-        resultSet = forceAPI.queryMore(resultSet)
+        resultSet = forceAPI.get.queryMore(resultSet)
         records.addAll(resultSet.filterRecords())
       }
 
@@ -128,13 +122,7 @@ case class DatasetRelation(
         case _: DoubleType => fieldValue.toDouble
         case _: BooleanType => fieldValue.toBoolean
         case _: DecimalType => new BigDecimal(fieldValue.replaceAll(",", ""))
-        case _: TimestampType => {
-          if (sdf != null) {
-            new Timestamp(sdf.parse(fieldValue).getTime)
-          } else {
-            Timestamp.valueOf(fieldValue)
-          }
-        }
+        case _: TimestampType => sdf.map(_.parse(fieldValue).getTime).getOrElse(Timestamp.valueOf(fieldValue))
         case _: DateType => Date.valueOf(fieldValue)
         case _: StringType => encode(fieldValue, fieldName)
         case _ => throw new RuntimeException(s"Unsupported data type: ${toType.typeName}")

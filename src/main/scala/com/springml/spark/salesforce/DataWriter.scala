@@ -33,7 +33,7 @@ class DataWriter (
     val login: String,
     val version: String,
     val datasetName: String,
-    val appName: String
+    val appName: Option[String]
     ) extends Serializable {
   @transient val logger = Logger.getLogger(classOf[DataWriter])
 
@@ -46,9 +46,13 @@ class DataWriter (
     val sobj = new SObject()
     sobj.setType("InsightsExternalData")
     sobj.setField("Format", "Csv")
-    logger.info("appName : " + appName)
-    if (appName != null) {
-      sobj.setField("EdgemartContainer", appName)
+
+    appName match {
+      case Some(app) => {
+        logger.info("appName : " + app)
+        sobj.setField("EdgemartContainer", appName.get)
+      }
+      case None => logger.warn("No appName setted")
     }
     sobj.setField("EdgemartAlias", datasetName)
     sobj.setField("MetadataJson", metaDataJson.getBytes)

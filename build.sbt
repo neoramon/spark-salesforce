@@ -1,21 +1,24 @@
 name := "spark-salesforce"
 
-version := "1.1.3"
-
 organization := "com.springml"
 
-scalaVersion := "2.11.8"
+scalaVersion := "2.11.12"
+
+val sforceVersion = "47.0.0"
+val scalaTestVersion = "2.2.6"
 
 resolvers += "sonatype-snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/"
 
 libraryDependencies ++= Seq(
-  "com.force.api" % "force-wsc" % "40.0.0",
-  "com.force.api" % "force-partner-api" % "40.0.0",
-  "com.springml" % "salesforce-wave-api" % "1.0.10",
-  "org.mockito" % "mockito-core" % "2.0.31-beta"
+  "com.force.api" % "force-wsc" % sforceVersion,
+  "com.force.api" % "force-partner-api" % sforceVersion,
+  "com.springml" % "salesforce-wave-api" % "1.0.10" excludeAll(ExclusionRule(organization = "com.force.api")),
+  "org.mockito" % "mockito-core" % "2.28.2"
 )
 
+logBuffered in Test := false
 parallelExecution in Test := false
+testOptions in Test := Seq(Tests.Filter(s => s.endsWith("Test")))
 
 resolvers += Resolver.url("artifactory", url("http://scalasbt.artifactoryonline.com/scalasbt/sbt-plugin-releases"))(Resolver.ivyStylePatterns)
 
@@ -27,8 +30,7 @@ resolvers += "sonatype-snapshots" at "https://oss.sonatype.org/content/repositor
 
 resolvers += "Spark Package Main Repo" at "https://dl.bintray.com/spark-packages/maven"
 
-libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.1" % "test"
-libraryDependencies += "com.madhukaraphatak" %% "java-sizeof" % "0.1"
+libraryDependencies += "org.scalatest" %% "scalatest" % scalaTestVersion % "test"
 libraryDependencies += "com.fasterxml.jackson.dataformat" % "jackson-dataformat-xml" % "2.4.4"
 libraryDependencies += "org.codehaus.woodstox" % "woodstox-core-asl" % "4.4.0"
 
@@ -37,7 +39,7 @@ spName := "springml/spark-salesforce"
 
 spAppendScalaVersion := true
 
-sparkVersion := "2.2.0"
+sparkVersion := "2.4.4"
 
 sparkComponents += "sql"
 
@@ -55,6 +57,14 @@ spDescription := """Spark Salesforce Wave Connector
 // licenses += "Apache-2.0" -> url("http://opensource.org/licenses/Apache-2.0")
 
 credentials += Credentials(Path.userHome / ".ivy2" / ".credentials")
+
+
+assemblyMergeStrategy in assembly := {
+  case PathList("META-INF", xs @ _*) => MergeStrategy.discard
+  case x => MergeStrategy.first
+}
+
+addArtifact(artifact in (Compile, assembly), assembly)
 
 publishTo := {
   val nexus = "https://oss.sonatype.org/"
