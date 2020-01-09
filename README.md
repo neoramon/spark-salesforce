@@ -55,7 +55,7 @@ $ bin/spark-shell --packages com.springml:spark-salesforce_2.11:1.1.3
 * `pageSize`: (Optional) Page size for each query to be executed against Salesforce Wave. Default value is 2000. This option can only be used if `resultVariable` is set
 * `upsert`: (Optional) Flag to upsert data to Salesforce. This performs an insert or update operation using the "externalIdFieldName" as the primary ID. Existing fields that are not in the dataframe being pushed will not be updated. Default "false".
 * `backoffPollingTime`: (Optional)  Starting retry wait time, for each retry the waiting time is multiplied by the retry count, default is 500.
-* `maxWriteRetries`: (Optional) Max number of retries, default is 1200, with default backoffPollingTime takes maximum 10 min to timeout.
+* `maxWriteRetries`: (Optional) Max number of retries, default is 1200.
 
 Check (https://developer.salesforce.com/docs/atlas.en-us.api_asynch.meta/api_asynch/asynch_api_concepts_limits.htm) to understand time limits and choose the right time configs. 
 
